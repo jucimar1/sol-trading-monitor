@@ -1,0 +1,16 @@
+# Arquivos de ambiente
+.env
+*.env
+
+# Ambiente Python
+venv/
+__pycache__/
+*.pyc
+
+# Logs e dados temporários
+logs/
+*.log
+data/
+
+# Chaves sensíveis
+config_local.py
