@@ -3,3 +3,8 @@ pandas==2.2.2
 pandas_ta==0.3.14b0
 python-dotenv==1.0.1
 requests==2.32.3
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ccxt pandas==2.2.2  # Fixando versão estável do Pandas
+        pip install pandas-ta           # Tentativa padrão
