@@ -1,49 +1,39 @@
-"""
-Indicadores técnicos com pandas_ta + limpeza NaN.
-Nomes padronizados para strategy.py.
-"""
 import pandas as pd
-import pandas_ta as ta
 import logging
 
 logger = logging.getLogger(__name__)
 
 def enrich_dataframe(df: pd.DataFrame, config) -> pd.DataFrame:
-    """Enriquece DF com todos indicadores."""
+    """Enriquece DF com indicadores usando cálculos nativos do Pandas."""
     df_out = df.copy()
     
-    # Bollinger Bands
-    bb = df.ta.bbands(length=config.BB_LENGTH, std=config.BB_STD)
-    bb.columns = ['BBL', 'BBM', 'BBU', 'BBB', 'BBP']
-    df_out = pd.concat([df_out, bb], axis=1)
+    # 1. Bollinger Bands
+    df_out['BBM'] = df_out['close'].rolling(window=config.BB_LENGTH).mean()
+    std = df_out['close'].rolling(window=config.BB_LENGTH).std()
+    df_out['BBU'] = df_out['BBM'] + (config.BB_STD * std)
+    df_out['BBL'] = df_out['BBM'] - (config.BB_STD * std)
+    # %B (BBP)
+    df_out['BBP'] = (df_out['close'] - df_out['BBL']) / (df_out['BBU'] - df_out['BBL'])
     
-    # EMAs
-    df_out['EMA_6'] = df_out['close'].ta.ema(6)
-    df_out['EMA_99'] = df_out['close'].ta.ema(99)
+    # 2. EMAs
+    df_out['EMA_6'] = df_out['close'].ewm(span=6, adjust=False).mean()
+    df_out['EMA_99'] = df_out['close'].ewm(span=99, adjust=False).mean()
     
-    # MACD
-    macd = df.ta.macd(fast=config.MACD_FAST, slow=config.MACD_SLOW, signal=config.MACD_SIGNAL)
-    macd.columns = ['MACD', 'MACD_signal', 'MACD_hist']
-    df_out = pd.concat([df_out, macd], axis=1)
+    # 3. MACD
+    ema_fast = df_out['close'].ewm(span=config.MACD_FAST, adjust=False).mean()
+    ema_slow = df_out['close'].ewm(span=config.MACD_SLOW, adjust=False).mean()
+    df_out['MACD'] = ema_fast - ema_slow
+    df_out['MACD_signal'] = df_out['MACD'].ewm(span=config.MACD_SIGNAL, adjust=False).mean()
+    df_out['MACD_hist'] = df_out['MACD'] - df_out['MACD_signal']
     
-    # RSI
-    df_out['RSI'] = df_out['close'].ta.rsi(config.RSI_LENGTH)
+    # 4. RSI (Cálculo clássico)
+    delta = df_out['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=config.RSI_LENGTH).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=config.RSI_LENGTH).mean()
+    rs = gain / loss
+    df_out['RSI'] = 100 - (100 / (1 + rs))
     
-    # Limpa NaN
-    df_out = df_out.fillna(method='ffill').fillna(method='bfill')
-    df_out = df_out.dropna()
+    # Limpa NaN (usando ffill/bfill compatível com Pandas novos)
+    df_out = df_out.ffill().bfill()
     
     return df_out.tail(100)
-
-def test_indicators():
-    """Teste standalone."""
-    import ccxt
-    config = Config()
-    exchange = ccxt.binance()
-    ohlcv = exchange.fetch_ohlcv(config.SYMBOL, '5m', limit=200)
-    df = pd.DataFrame(ohlcv, columns=['timestamp','open','high','low','close','volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df.set_index('timestamp', inplace=True)
-    
-    df_enriched = enrich_dataframe(df, config)
-    print(df_enriched[['close', 'RSI', 'BBP', 'MACD_hist']].tail())
