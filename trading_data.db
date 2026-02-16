@@ -1,0 +1,39 @@
+import sqlite3
+import pandas as pd
+
+def init_db():
+    conn = sqlite3.connect('trading_data.db')
+    cursor = conn.cursor()
+    # Tabela para histórico e RSI
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            timestamp DATETIME PRIMARY KEY,
+            price REAL,
+            rsi REAL
+        )
+    ''')
+    # Tabela para estado da ordem
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    conn.commit()
+    return conn
+
+def save_data(conn, price, rsi):
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO history (timestamp, price, rsi) VALUES (CURRENT_TIMESTAMP, ?, ?)', (price, rsi))
+    conn.commit()
+
+def get_last_rsi(conn):
+    cursor = conn.cursor()
+    cursor.execute('SELECT rsi FROM history ORDER BY timestamp DESC LIMIT 1')
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+def set_order_state(conn, status):
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO state (key, value) VALUES ("last_order_status", ?)', (status,))
+    conn.commit()
