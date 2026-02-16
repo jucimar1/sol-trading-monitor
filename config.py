@@ -1,33 +1,32 @@
-import os
-from dotenv import load_dotenv
+import pandas as pd
 
-load_dotenv()
-
-class Config:
-    SYMBOL = "SOLUSDT"  # Formato padrão API direta
+def enrich_dataframe(df: pd.DataFrame, config) -> pd.DataFrame:
+    """Calcula indicadores usando apenas Pandas nativo."""
+    df_out = df.copy()
     
-    # API (Obrigatório para o futuro, mas o monitor roda público agora)
-    API_KEY = os.getenv("BINANCE_API_KEY", "")
-    API_SECRET = os.getenv("BINANCE_API_SECRET", "")
-    SANDBOX_MODE = os.getenv("SANDBOX_MODE", "true").lower() == "true"
+    # Bollinger Bands
+    df_out['BBM'] = df_out['close'].rolling(window=config.BB_LENGTH).mean()
+    std = df_out['close'].rolling(window=config.BB_LENGTH).std()
+    df_out['BBU'] = df_out['BBM'] + (config.BB_STD * std)
+    df_out['BBL'] = df_out['BBM'] - (config.BB_STD * std)
+    df_out['BBP'] = (df_out['close'] - df_out['BBL']) / (df_out['BBU'] - df_out['BBL'])
     
-    TIMEFRAMES = {
-        'fast': '1m',    # Timing
-        'medium': '5m',  # Confirmação
-        'slow': '1h'     # Tendência
-    }
+    # EMAs
+    df_out['EMA_6'] = df_out['close'].ewm(span=6, adjust=False).mean()
+    df_out['EMA_99'] = df_out['close'].ewm(span=99, adjust=False).mean()
     
-    # Indicadores
-    BB_LENGTH = 20
-    BB_STD = 2.0
-    RSI_LENGTH = 14
-    RSI_OVERSOLD = 35
-    RSI_OVERBOUGHT = 65
+    # MACD
+    ema_fast = df_out['close'].ewm(span=config.MACD_FAST, adjust=False).mean()
+    ema_slow = df_out['close'].ewm(span=config.MACD_SLOW, adjust=False).mean()
+    df_out['MACD'] = ema_fast - ema_slow
+    df_out['MACD_signal'] = df_out['MACD'].ewm(span=config.MACD_SIGNAL, adjust=False).mean()
+    df_out['MACD_hist'] = df_out['MACD'] - df_out['MACD_signal']
     
-    MACD_FAST = 12
-    MACD_SLOW = 26
-    MACD_SIGNAL = 9
+    # RSI
+    delta = df_out['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=config.RSI_LENGTH).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=config.RSI_LENGTH).mean()
+    rs = gain / loss
+    df_out['RSI'] = 100 - (100 / (1 + rs))
     
-    # Telegram
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+    return df_out.ffill().bfill().tail(100)
