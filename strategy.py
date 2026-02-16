@@ -1,152 +1,97 @@
 """
-Lógica de trading baseada no canal dinâmico:
-- LONG: Preço na EMA6 (suporte) + confirmação multi-timeframe
-- SHORT: Preço na EMA6 (resistência) + confirmação multi-timeframe
-- SAÍDA: Rompimento das bandas de Bollinger ou perda de momentum
+Estratégia EMA6 canal + multi-timeframe + volume.
+Compatível com indicators.py nomes.
 """
+import logging
 
-def is_uptrend(df_slow, df_medium, config):
-    """
-    Verifica se há tendência de alta no contexto geral (1h).
-    Condições:
-        - Preço acima da EMA99 (tendência de longo prazo)
-        - MACD positivo ou cruzando para cima
-    """
-    if df_slow['close'].iloc[-1] < df_slow[f'ema{config.EMA_LONG}'].iloc[-1]:
-        return False
-    
-    macd_hist = df_slow['MACDh_12_26_9'].iloc[-1]
-    if macd_hist < 0:
-        # Verifica se está cruzando para cima (2 últimos candles)
-        if df_slow['MACDh_12_26_9'].iloc[-2] >= macd_hist:
-            return False
-    
-    return True
+logger = logging.getLogger(__name__)
 
-def is_downtrend(df_slow, df_medium, config):
-    """
-    Verifica se há tendência de baixa no contexto geral (1h).
-    Condições:
-        - Preço abaixo da EMA99 (tendência de longo prazo)
-        - MACD negativo ou cruzando para baixo
-    """
-    if df_slow['close'].iloc[-1] > df_slow[f'ema{config.EMA_LONG}'].iloc[-1]:
-        return False
-    
-    macd_hist = df_slow['MACDh_12_26_9'].iloc[-1]
-    if macd_hist > 0:
-        # Verifica se está cruzando para baixo
-        if df_slow['MACDh_12_26_9'].iloc[-2] <= macd_hist:
-            return False
-    
-    return True
+def is_uptrend(df_slow, config):
+    """Tendência alta 1h."""
+    if len(df_slow) < 2: return False
+    return (df_slow['close'].iloc[-1] > df_slow['EMA_99'].iloc[-1] and
+            df_slow['MACD_hist'].iloc[-1] >= 0)
+
+def is_downtrend(df_slow, config):
+    """Tendência baixa 1h."""
+    if len(df_slow) < 2: return False
+    return (df_slow['close'].iloc[-1] < df_slow['EMA_99'].iloc[-1] and
+            df_slow['MACD_hist'].iloc[-1] <= 0)
 
 def check_long_entry(df_fast, df_medium, df_slow, config):
-    """
-    Condições para entrada LONG:
-    1. Tendência de alta no 1h (contexto)
-    2. Preço acima da EMA6 no 15m (confirmação)
-    3. RSI > 30 no 15m (saída da sobrevenda)
-    4. Preço tocando EMA6 no 1m (timing preciso)
-    5. Volume crescente nas últimas 3 velas (confirmação)
-    """
-    # Condição 1: Tendência de alta no 1h
-    if not is_uptrend(df_slow, df_medium, config):
-        return False, "❌ Sem tendência de alta no 1h"
+    """LONG: 6 filtros."""
+    price = df_fast['close'].iloc[-1]
     
-    # Condição 2: Preço acima da EMA6 no 15m
-    if df_medium['close'].iloc[-1] < df_medium[f'ema{config.EMA_SHORT}'].iloc[-1]:
-        return False, "❌ Preço abaixo da EMA6 no 15m"
+    # 1. Contexto 1h
+    if not is_uptrend(df_slow, config):
+        return False, "❌ Sem trend 1h"
     
-    # Condição 3: RSI > 30 no 15m
-    if df_medium['rsi'].iloc[-1] < 30:
-        return False, f"❌ RSI muito baixo ({df_medium['rsi'].iloc[-1]:.2f})"
+    # 2. EMA6 medium
+    if df_medium['close'].iloc[-1] < df_medium['EMA_6'].iloc[-1]:
+        return False, "❌ < EMA6 5m"
     
-    # Condição 4: Preço tocando EMA6 no 1m (tolerância 0.15%)
-    ema6_fast = df_fast[f'ema{config.EMA_SHORT}'].iloc[-1]
-    current_price = df_fast['close'].iloc[-1]
-    tolerance = ema6_fast * 0.0015  # 0.15%
+    # 3. RSI
+    rsi = df_medium['RSI'].iloc[-1]
+    if rsi < config.RSI_OVERSOLD:
+        return False, f"❌ RSI {rsi:.1f}"
     
-    if abs(current_price - ema6_fast) > tolerance:
-        return False, f"❌ Preço longe da EMA6 no 1m (dif: {abs(current_price - ema6_fast):.4f})"
+    # 4. Timing EMA6 1m
+    ema6 = df_fast['EMA_6'].iloc[-1]
+    if abs(price - ema6) > ema6 * 0.002:
+        return False, "❌ Longe EMA6"
     
-    # Condição 5: Volume crescente
-    volumes = df_fast['volume'].iloc[-3:]
-    if not (volumes.iloc[0] < volumes.iloc[1] < volumes.iloc[2]):
-        return False, "❌ Volume não está crescendo"
+    # 5. Volume
+    if len(df_fast) < 3 or not (df_fast['volume'].iloc[-3:] == 
+        sorted(df_fast['volume'].iloc[-3:])):
+        return False, "❌ Volume"
     
-    # ✅ Todas as condições atendidas
-    return True, f"✅ SINAL LONG CONFIRMADO\nPreço: {current_price:.4f}\nEMA6 (1m): {ema6_fast:.4f}\nRSI (15m): {df_medium['rsi'].iloc[-1]:.2f}"
+    # 6. BB position
+    if df_medium['BBP'].iloc[-1] > 0.95:
+        return False, "❌ BB alta"
+    
+    return True, f"🟢 LONG {price:.4f} | RSI:{rsi:.1f}"
 
 def check_short_entry(df_fast, df_medium, df_slow, config):
-    """
-    Condições para entrada SHORT:
-    1. Tendência de baixa no 1h (contexto)
-    2. Preço abaixo da EMA6 no 15m (confirmação)
-    3. RSI < 70 no 15m (saída da sobrecompra)
-    4. Preço tocando EMA6 no 1m (timing preciso)
-    5. Volume crescente nas últimas 3 velas (confirmação)
-    """
-    # Condição 1: Tendência de baixa no 1h
-    if not is_downtrend(df_slow, df_medium, config):
-        return False, "❌ Sem tendência de baixa no 1h"
+    """SHORT espelhado."""
+    price = df_fast['close'].iloc[-1]
     
-    # Condição 2: Preço abaixo da EMA6 no 15m
-    if df_medium['close'].iloc[-1] > df_medium[f'ema{config.EMA_SHORT}'].iloc[-1]:
-        return False, "❌ Preço acima da EMA6 no 15m"
+    if not is_downtrend(df_slow, config):
+        return False, "❌ Sem trend 1h"
     
-    # Condição 3: RSI < 70 no 15m
-    if df_medium['rsi'].iloc[-1] > 70:
-        return False, f"❌ RSI muito alto ({df_medium['rsi'].iloc[-1]:.2f})"
+    if df_medium['close'].iloc[-1] > df_medium['EMA_6'].iloc[-1]:
+        return False, "❌ > EMA6 5m"
     
-    # Condição 4: Preço tocando EMA6 no 1m (tolerância 0.15%)
-    ema6_fast = df_fast[f'ema{config.EMA_SHORT}'].iloc[-1]
-    current_price = df_fast['close'].iloc[-1]
-    tolerance = ema6_fast * 0.0015
+    rsi = df_medium['RSI'].iloc[-1]
+    if rsi > config.RSI_OVERBOUGHT:
+        return False, f"❌ RSI {rsi:.1f}"
     
-    if abs(current_price - ema6_fast) > tolerance:
-        return False, f"❌ Preço longe da EMA6 no 1m (dif: {abs(current_price - ema6_fast):.4f})"
+    ema6 = df_fast['EMA_6'].iloc[-1]
+    if abs(price - ema6) > ema6 * 0.002:
+        return False, "❌ Longe EMA6"
     
-    # Condição 5: Volume crescente
-    volumes = df_fast['volume'].iloc[-3:]
-    if not (volumes.iloc[0] < volumes.iloc[1] < volumes.iloc[2]):
-        return False, "❌ Volume não está crescendo"
+    if len(df_fast) < 3 or not (df_fast['volume'].iloc[-3:] == 
+        sorted(df_fast['volume'].iloc[-3:])):
+        return False, "❌ Volume"
     
-    # ✅ Todas as condições atendidas
-    return True, f"✅ SINAL SHORT CONFIRMADO\nPreço: {current_price:.4f}\nEMA6 (1m): {ema6_fast:.4f}\nRSI (15m): {df_medium['rsi'].iloc[-1]:.2f}"
+    if df_medium['BBP'].iloc[-1] < 0.05:
+        return False, "❌ BB baixa"
+    
+    return True, f"🔴 SHORT {price:.4f} | RSI:{rsi:.1f}"
 
 def check_long_exit(df_medium, config):
-    """
-    Condições para saída de LONG:
-    1. Rompimento da banda superior de Bollinger
-    2. Perda de momentum (MACD histograma decrescendo após pico)
-    """
-    # Condição 1: Rompimento da banda superior
-    if df_medium['close'].iloc[-1] > df_medium['BBU_20_2.0'].iloc[-1]:
-        return True, "⚠️ SAÍDA: Rompimento da banda superior"
-    
-    # Condição 2: Perda de momentum
-    hist = df_medium['MACDh_12_26_9']
-    if len(hist) >= 3:
-        if hist.iloc[-1] < hist.iloc[-2] and hist.iloc[-2] > hist.iloc[-3]:
-            return True, "⚠️ SAÍDA: Perda de momentum (MACD)"
-    
+    """Saída LONG."""
+    if df_medium['close'].iloc[-1] > df_medium['BBU'].iloc[-1]:
+        return True, "TP Banda superior"
+    if (len(df_medium) >= 3 and 
+        df_medium['MACD_hist'].iloc[-1] < df_medium['MACD_hist'].iloc[-2]):
+        return True, "MACD fraco"
     return False, ""
 
 def check_short_exit(df_medium, config):
-    """
-    Condições para saída de SHORT:
-    1. Rompimento da banda inferior de Bollinger
-    2. Perda de momentum (MACD histograma crescendo após vale)
-    """
-    # Condição 1: Rompimento da banda inferior
-    if df_medium['close'].iloc[-1] < df_medium['BBL_20_2.0'].iloc[-1]:
-        return True, "⚠️ SAÍDA: Rompimento da banda inferior"
-    
-    # Condição 2: Perda de momentum
-    hist = df_medium['MACDh_12_26_9']
-    if len(hist) >= 3:
-        if hist.iloc[-1] > hist.iloc[-2] and hist.iloc[-2] < hist.iloc[-3]:
-            return True, "⚠️ SAÍDA: Perda de momentum (MACD)"
-    
+    """Saída SHORT."""
+    if df_medium['close'].iloc[-1] < df_medium['BBL'].iloc[-1]:
+        return True, "TP Banda inferior"
+    if (len(df_medium) >= 3 and 
+        df_medium['MACD_hist'].iloc[-1] > df_medium['MACD_hist'].iloc[-2]):
+        return True, "MACD fraco"
     return False, ""
