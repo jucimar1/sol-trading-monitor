@@ -1,6 +1,6 @@
 
 ## 6. **GitHub Actions** - `.github/workflows/main.yml`
-```yaml
+yaml
 name: SOL Trading Monitor
 
 on:
