@@ -5,6 +5,7 @@ import requests
 from config import Config
 from indicators import enrich_dataframe
 from strategy import check_long_entry, check_short_entry
+from database import init_db
 
 def send_telegram(msg):
     if not Config.TELEGRAM_BOT_TOKEN: return
