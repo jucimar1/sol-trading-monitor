@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SOL/USDT Monitor</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: white; font-family: Arial; }
+        .container { padding: 20px; max-width: 100%; }
+        #price { font-size: 48px; text-align: center; margin: 20px 0; }
+        #rsi { font-size: 32px; text-align: center; margin-bottom: 20px; }
+        #chart { width: 100%; height: 400px; }
+        .metrics { display: flex; justify-content: space-around; margin: 20px 0; }
+        .metric { text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 SOL/USDT Monitor</h1>
+        <div id="price">$150.23</div>
+        <div id="rsi">RSI 5m: 45.2</div>
+        
+        <div class="metrics">
+            <div class="metric">
+                <div id="pos">⚪ IDLE</div>
+                <div style="font-size: 24px;">Posição</div>
+            </div>
+            <div class="metric">
+                <div id="change">+2.45%</div>
+                <div style="font-size: 24px;">24h</div>
+            </div>
+        </div>
+        
+        <div id="chart"></div>
+    </div>
+
+    <script>
+        // WebSocket Binance TEMPO REAL
+        const ws = new WebSocket('wss://stream.binance.com:9443/ws/solusdt@ticker');
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            document.getElementById('price').textContent = `$${parseFloat(data.c).toFixed(4)}`;
+            
+            // RSI simulado (cor realista)
+            const rsi = 30 + Math.sin(Date.now() / 10000) * 40;
+            document.getElementById('rsi').textContent = `RSI 5m: ${rsi.toFixed(1)}`;
+            
+            // Cores dinâmicas
+            const pos = rsi < 30 ? '🟢 LONG' : rsi > 70 ? '🔴 SHORT' : '⚪ IDLE';
+            document.getElementById('pos').textContent = pos;
+        };
+
+        // Gráfico candlestick
+        const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+            layout: { background: { color: '#1a1a1a' }, textColor: '#ffffff' },
+            grid: { vertLines: { color: '#333' }, horzLines: { color: '#333' } }
+        });
+        const candleSeries = chart.addCandlestickSeries();
+        
+        // Dados simulados iniciais
+        candleSeries.setData(Array.from({length: 50}, (_, i) => ({
+            time: Math.floor(Date.now() / 1000) - 50*60 + i*60,
+            open: 150 + (Math.random()-0.5)*2,
+            high: 151 + Math.random(),
+            low: 149 + Math.random(),
+            close: 150 + (Math.random()-0.5)*2
+        })));
+    </script>
+</body>
+</html>
+
