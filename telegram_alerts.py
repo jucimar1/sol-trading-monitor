@@ -1,8 +1,8 @@
 """
-Integração com Telegram para envio de alertas.
+Telegram SYNC simples (requests) - sem asyncio complexo.
 """
-
 import logging
+import requests
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -10,42 +10,29 @@ logger = logging.getLogger(__name__)
 class TelegramAlerts:
     def __init__(self):
         self.enabled = Config.is_telegram_enabled()
-        if self.enabled:
-            try:
-                from telegram import Bot
-                self.bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)
-                logger.info("✅ Telegram configurado com sucesso")
-            except ImportError:
-                logger.error("❌ Módulo 'python-telegram-bot' não instalado")
-                self.enabled = False
-        else:
-            logger.info("ℹ️ Telegram desativado (chaves não configuradas)")
+        self.base_url = f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage"
+        if not self.enabled:
+            logger.info("ℹ️ Telegram OFF")
     
     def send_alert(self, message, alert_type="info"):
-        """
-        Envia alerta para o Telegram.
-        alert_type: "entry_long", "entry_short", "exit", "info"
-        """
         if not self.enabled:
-            logger.info(f"[ALERTA] {message}")
+            emoji = {"entry_long": "🟢", "entry_short": "🔴", "exit": "🟡"}.get(alert_type, "ℹ️")
+            logger.info(f"{emoji} {message}")
             return
         
+        emoji = {"entry_long": "🟢🚀", "entry_short": "🔴📉", "exit": "🟡💰"}.get(alert_type, "📊")
+        full_msg = f"{emoji} <b>SOL Monitor</b>\n{escape_html(message)}"
+        
         try:
-            # Adiciona emoji conforme tipo de alerta
-            emoji = "ℹ️"
-            if alert_type == "entry_long":
-                emoji = "🟢"
-            elif alert_type == "entry_short":
-                emoji = "🔴"
-            elif alert_type == "exit":
-                emoji = "⚠️"
-            
-            full_message = f"{emoji} {message}"
-            self.bot.send_message(
-                chat_id=Config.TELEGRAM_CHAT_ID,
-                text=full_message,
-                parse_mode="HTML"
-            )
-            logger.info(f"✅ Alerta enviado ao Telegram: {message[:50]}...")
+            requests.post(self.base_url, json={
+                'chat_id': Config.TELEGRAM_CHAT_ID,
+                'text': full_msg,
+                'parse_mode': 'HTML',
+                'disable_notification': alert_type not in ['entry_long', 'entry_short']
+            }).raise_for_status()
+            logger.info(f"✅ Telegram: {alert_type}")
         except Exception as e:
-            logger.error(f"❌ Erro ao enviar alerta Telegram: {e}")
+            logger.error(f"❌ Telegram: {e}")
+
+def escape_html(text):
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
