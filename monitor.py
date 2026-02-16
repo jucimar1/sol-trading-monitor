@@ -33,7 +33,10 @@ class TradingMonitor:
     def fetch_ohlcv(self, timeframe, limit=150):
         try:
             ohlcv = self.exchange.fetch_ohlcv(self.config.SYMBOL, timeframe, limit=limit)
-            df = pd.DataFrame(ohlcv, columns=['timestamp','o','h','l','c','v'])
+            # Na função fetch_ohlcv(), MUDE esta linha:
+            df.columns = ['open', 'high', 'low', 'close', 'volume']  # ✅ CORRETO
+            # Ao invés de: ['timestamp','o','h','l','c','v']
+
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('timestamp', inplace=True)
             df.columns = ['open', 'high', 'low', 'close', 'volume']
