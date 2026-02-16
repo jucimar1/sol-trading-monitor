@@ -34,6 +34,7 @@ def main():
     cursor.execute('SELECT value FROM state WHERE key="pos"')
     row = cursor.fetchone()
     current_pos = row[0] if row else "IDLE"
+    conn.close()
     
     try:
         df_f = fetch_data(Config.TIMEFRAMES['fast'])
@@ -68,6 +69,6 @@ def main():
         conn.close()
 
 if __name__ == "__main__":
-    conn = init_db()
+  #  conn = init_db()
     main()
-    conn.close()
+   # conn.close()
