@@ -5,7 +5,7 @@ name: SOL Trading Monitor
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # A cada 30min
+    - cron: '*/3 * * * *'  # A cada 30min
   workflow_dispatch:  # Manual trigger
 
 jobs:
