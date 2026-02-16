@@ -67,6 +67,6 @@ def main():
         conn.close()
 
 if __name__ == "__main__":
-    conn = init_db('trading_data.db')
+    conn = init_db()
     main()
     conn.close()
