@@ -1,23 +1,8 @@
-# Env e secrets
+# Ignorar banco de dados local
+trading_data.db
+
+# Ignorar arquivos temporários do Python
+__pycache__/
+*.pyc
 .env
-__pycache__/
-*.pyc
-
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
 .venv/
-
-# Logs
-*.log
-logs/
-
-# IDE
-.vscode/
-.idea/
