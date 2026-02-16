@@ -23,7 +23,7 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         pip install pandas requests
-        python monitor.py: '3.11'
+        
     
     - name: Install dependencies
       run: |
