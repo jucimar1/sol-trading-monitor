@@ -5,6 +5,7 @@ import requests
 from datetime import datetime
 from config import Config
 from strategy import check_long_entry, check_short_entry, check_long_exit, check_short_exit
+from indicators import enrich_dataframe
 
 # --- CÁLCULOS MATEMÁTICOS PUROS ---
 def add_indicators(df):
