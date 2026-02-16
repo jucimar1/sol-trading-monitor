@@ -1,6 +1,8 @@
 # Env e secrets
 .env
-*.env
+__pycache__/
+*.pyc
+
 
 # Python
 __pycache__/
