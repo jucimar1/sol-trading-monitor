@@ -21,21 +21,21 @@ jobs:
       uses: actions/cache@v3
       with:
         path: trading_data.db
+        # A chave muda conforme o ID do run para garantir que o cache seja atualizado ao fim
         key: ${{ runner.os }}-database-${{ github.run_id }}
         restore-keys: |
           ${{ runner.os }}-database-
 
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
-    
+        pip install ccxt pandas pandas-ta
+
     - name: Run monitor
       env:
         BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
         BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+        # Telegram Secrets mantidos para o Python usar internamente
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         SANDBOX_MODE: true
       run: python monitor.py
-
-    # Notificação do Telegram comentada/removida conforme solicitado
