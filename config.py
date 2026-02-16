@@ -1,7 +1,15 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("⚠️  python-dotenv não instalado. Usando variáveis de ambiente diretas.")
+
+# resto do código permanece 
+
+
 
 class Config:
     SYMBOL = "SOLUSDT"  # Formato padrão API direta
