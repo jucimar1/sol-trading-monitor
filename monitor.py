@@ -1,107 +1,96 @@
-"""
-Monitor SOL/USDT completo - copie e rode!
-"""
+import os
+import sqlite3
 import ccxt
 import pandas as pd
+import pandas_ta as ta
 import time
-import logging
-from datetime import datetime
-from config import Config
-from indicators import enrich_dataframe
-from strategy import check_long_entry, check_short_entry, check_long_exit, check_short_exit
-from telegram_alerts import TelegramAlerts
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s')
-logger = logging.getLogger(__name__)
+# --- CONFIGURAÇÕES E BANCO DE DATOS ---
+SYMBOL = 'SOL/USDT'
+TIMEFRAME = '30m'
 
-class TradingMonitor:
-    def __init__(self):
-        self.config = Config()
-        self.config.validate()
+def init_db():
+    """Inicializa o banco de dados SQLite para persistência no GitHub Actions"""
+    conn = sqlite3.connect('trading_data.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            timestamp DATETIME PRIMARY KEY,
+            price REAL,
+            rsi REAL
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    conn.commit()
+    return conn
+
+def get_last_state(conn):
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM state WHERE key = "position"')
+    result = cursor.fetchone()
+    return result[0] if result else "OUT"
+
+def save_trade_state(conn, price, rsi, position):
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO history (timestamp, price, rsi) VALUES (CURRENT_TIMESTAMP, ?, ?)', (price, rsi))
+    cursor.execute('INSERT OR REPLACE INTO state (key, value) VALUES ("position", ?)', (position,))
+    conn.commit()
+
+# --- LÓGICA DE DADOS (CORRIGIDA) ---
+def fetch_ohlcv():
+    exchange = ccxt.binance({
+        'apiKey': os.getenv('BINANCE_API_KEY'),
+        'secret': os.getenv('BINANCE_API_SECRET'),
+        'enableRateLimit': True,
+        'options': {'defaultType': 'spot'}
+    })
+    
+    print(f"Buscando dados de {SYMBOL}...")
+    bars = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
+    
+    # ✅ CORREÇÃO DAS COLUNAS: Definindo nomes claros para o Pandas TA
+    df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    return df
+
+def analyze_strategy():
+    conn = init_db()
+    last_position = get_last_state(conn)
+    
+    try:
+        df = fetch_ohlcv()
         
-        self.exchange = ccxt.binance({
-            'apiKey': self.config.API_KEY,
-            'secret': self.config.API_SECRET,
-            'enableRateLimit': True,
-            'sandbox': self.config.SANDBOX_MODE
-        })
+        # Cálculo do RSI usando pandas_ta
+        df['RSI'] = ta.rsi(df['close'], length=14)
         
-        self.telegram = TelegramAlerts()
-        self.positions = {'long': False, 'short': False}
-        logger.info(f"🚀 Monitor {self.config.SYMBOL} INICIADO")
+        current_rsi = df['RSI'].iloc[-1]
+        current_price = df['close'].iloc[-1]
+        
+        print(f"Preço: {current_price} | RSI: {current_rsi:.2f} | Posição Atual: {last_position}")
 
-    def fetch_ohlcv(self, timeframe, limit=150):
-        try:
-            ohlcv = self.exchange.fetch_ohlcv(self.config.SYMBOL, timeframe, limit=limit)
-            # Na função fetch_ohlcv(), MUDE esta linha:
-            df.columns = ['open', 'high', 'low', 'close', 'volume']  # ✅ CORRETO
-            # Ao invés de: ['timestamp','o','h','l','c','v']
+        # Exemplo Simples de Estratégia
+        new_position = last_position
+        if current_rsi < 30 and last_position == "OUT":
+            print("🚀 SINAL DE COMPRA (RSI SOBREVENDIDO)")
+            new_position = "IN"
+            # Aqui entraria a lógica de exchange.create_order(...)
+            
+        elif current_rsi > 70 and last_position == "IN":
+            print("💰 SINAL DE VENDA (RSI SOBRECOMPRADO)")
+            new_position = "OUT"
+            # Aqui entraria a lógica de exchange.create_order(...)
 
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('timestamp', inplace=True)
-            df.columns = ['open', 'high', 'low', 'close', 'volume']
-            return df
-        except Exception as e:
-            logger.error(f"❌ Fetch {timeframe}: {e}")
-            return pd.DataFrame()
+        save_trade_state(conn, current_price, current_rsi, new_position)
 
-    def run(self):
-        logger.info("🔄 Loop iniciado...")
-        while True:
-            try:
-                # Fetch dados
-                data = {}
-                for name, tf in self.config.TIMEFRAMES.items():
-                    df = self.fetch_ohlcv(tf)
-                    if len(df) >= 50:
-                        data[name] = enrich_dataframe(df, self.config)
-
-                if len(data) != 3:
-                    logger.warning("⚠️ Dados incompletos")
-                    time.sleep(self.config.CHECK_INTERVAL)
-                    continue
-
-                price = data['fast']['close'].iloc[-1]
-                logger.info(f"📊 {datetime.now().strftime('%H:%M:%S')} | {self.config.SYMBOL}: ${price:.4f}")
-
-                # ENTRADAS
-                if not self.positions['long']:
-                    ok, msg = check_long_entry(data['fast'], data['medium'], data['slow'], self.config)
-                    if ok:
-                        self.positions['long'] = True
-                        self.telegram.send_alert(msg, "entry_long")
-
-                if not self.positions['short']:
-                    ok, msg = check_short_entry(data['fast'], data['medium'], data['slow'], self.config)
-                    if ok:
-                        self.positions['short'] = True
-                        self.telegram.send_alert(msg, "entry_short")
-
-                # SAÍDAS
-                if self.positions['long']:
-                    ok, msg = check_long_exit(data['medium'], self.config)
-                    if ok:
-                        self.positions['long'] = False
-                        self.telegram.send_alert(msg, "exit")
-
-                if self.positions['short']:
-                    ok, msg = check_short_exit(data['medium'], self.config)
-                    if ok:
-                        self.positions['short'] = False
-                        self.telegram.send_alert(msg, "exit")
-
-                status = "🟢L" if self.positions['long'] else ""
-                status += "🔴S" if self.positions['short'] else ""
-                logger.info(f"Estado: {status or '⚪'}")
-                
-                time.sleep(self.config.CHECK_INTERVAL)
-
-            except KeyboardInterrupt:
-                logger.info("🛑 Interrompido")
-                break
-            except Exception as e:
-                logger.error(f"❌ Erro: {e}")
-                time.sleep(60)
+    except Exception as e:
+        print(f"Erro na execução: {e}")
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
-    TradingMonitor().run()
+    analyze_strategy()
