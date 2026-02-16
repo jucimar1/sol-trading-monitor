@@ -1,4 +1,4 @@
-import os
+)import os
 import sqlite3
 import pandas as pd
 import requests
@@ -67,4 +67,6 @@ def main():
         conn.close()
 
 if __name__ == "__main__":
+    conn = init_db('trading_data.db')
     main()
+    conn.close()
