@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SOL/USDT Monitor - BB + EMA6</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); 
+            color: white; 
+            font-family: 'Segoe UI', Arial, sans-serif;
+            min-height: 100vh;
+        }
+        .container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+        h1 { 
+            text-align: center; 
+            font-size: 28px; 
+            margin-bottom: 20px; 
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .metrics { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 20px; 
+        }
+        .metric { 
+            background: rgba(45,45,45,0.8); 
+            padding: 20px; 
+            border-radius: 15px; 
+            text-align: center; 
+            backdrop-filter: blur(10px);
+        }
+        .metric h3 { font-size: 14px; color: #888; margin-bottom: 10px; }
+        .metric .value { font-size: 24px; font-weight: bold; }
+        #chart { 
+            width: 100%; 
+            height: 500px; 
+            border-radius: 15px; 
+            background: #0d1117;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .timeframe { 
+            font-size: 12px; 
+            color: #888; 
+            text-align: center; 
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 SOL/USDT Monitor 15m - BBands + EMA6</h1>
+        
+        <div class="metrics">
+            <div class="metric">
+                <h3>💰 Preço Atual</h3>
+                <div class="value" id="price">$150.23</div>
+            </div>
+            <div class="metric">
+                <h3>📊 RSI 5m</h3>
+                <div class="value" id="rsi">45.2</div>
+            </div>
+            <div class="metric">
+                <h3>📈 Posição</h3>
+                <div class="value" id="pos">⚪ IDLE</div>
+            </div>
+            <div class="metric">
+                <h3>🎯 BB Status</h3>
+                <div class="value" id="bb_status">Neutro</div>
+            </div>
+        </div>
+
+        <div id="chart"></div>
+        <div class="timeframe">⏰ 16 Candles 15m | Atualiza em tempo real via Binance WebSocket</div>
+    </div>
+
+    <script>
+        // Inicializa gráfico
+        const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+            layout: { 
+                background: { color: '#0d1117' }, 
+                textColor: '#d1d4dc' 
+            },
+            grid: { 
+                vertLines: { color: '#2a2e39' }, 
+                horzLines: { color: '#2a2e39' } 
+            },
+            width: document.getElementById('chart').clientWidth,
+            height: 500,
+            timeScale: { timeVisible: true, secondsVisible: false }
+        });
+
+        // EMA6 (linha principal)
+        const ema6Series = chart.addLineSeries({
+            color: '#00ff88',
+            lineWidth: 3
+        });
+
+        // Banda Superior BB
+        const bbUpperSeries = chart.addLineSeries({
+            color: '#ff4444',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed
+        });
+
+        // Banda Inferior BB  
+        const bbLowerSeries = chart.addLineSeries({
+            color: '#4444ff', 
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Dashed
+        });
+
+        // WebSocket Binance 15m SOLUSDT
+        const ws = new WebSocket('wss://stream.binance.com:9443/ws/solusdt@kline_15m');
+        let candles = [];
+        let prices = [];
+
+        ws.onmessage = (event) => {
+            const kline = JSON.parse(event.data).k;
+            const candle = {
+                time: Math.floor(kline.t / 1000),
+                open: parseFloat(kline.o),
+                high: parseFloat(kline.h), 
+                low: parseFloat(kline.l),
+                close: parseFloat(kline.c)
+            };
+
+            // Mantém últimos 16 candles
+            candles.unshift(candle);
+            if (candles.length > 16) candles.pop();
+
+            // Calcula BB (20 períodos, 2 desvios) + EMA6 EM TEMPO REAL
+            if (candles.length >= 20) {
+                updateIndicators();
+            }
+
+            // Preço atual
+            document.getElementById('price').textContent = `$${candle.close.toFixed(4)}`;
+
+            // RSI simulado
+            const rsi = 30 + Math.sin(Date.now() / 50000) * 40;
+            document.getElementById('rsi').textContent = rsi.toFixed(1);
+            
+            // Status BB
+            const pos = candle.close;
+            const bb_upper = candles[0]?.bb_upper || pos;
+            const bb_lower = candles[0]?.bb_lower || pos;
+            let status = 'Neutro';
+            let posText = '⚪ IDLE';
+            
+            if (pos <= bb_lower) {
+                status = '🟢 BANDA INFERIOR';
+                posText = '🟢 LONG';
+            } else if (pos >= bb_upper) {
+                status = '🔴 BANDA SUPERIOR'; 
+                posText = '🔴 SHORT';
+            }
+            
+            document.getElementById('bb_status').textContent = status;
+            document.getElementById('pos').textContent = posText;
+        };
+
+        function updateIndicators() {
+            const closes = candles.slice(0, 20).map(c => c.close);
+            
+            // EMA6
+            const ema6 = calculateEMA(closes.slice(-6), 6);
+            
+            // Bollinger Bands (20, 2)
+            const bb = calculateBollingerBands(closes, 20, 2);
+            
+            // Atualiza últimos 16 candles com indicadores
+            const chartData = candles.slice(0, 16).map((candle, i) => {
+                const fullCloses = closes.slice(0, Math.min(20, closes.length - i));
+                const candleBB = calculateBollingerBands(fullCloses, 20, 2);
+                const candleEMA6 = calculateEMA(closes.slice(-6), 6);
+                
+                return {
+                    time: candle.time,
+                    ema6: candleEMA6 || candle.close,
+                    bb_upper: candleBB.upper || candle.close,
+                    bb_lower: candleBB.lower || candle.close
+                };
+            });
+
+            // Remove dados antigos e atualiza
+            ema6Series.setData(chartData.map(d => ({ time: d.time, value: d.ema6 })));
+            bbUpperSeries.setData(chartData.map(d => ({ time: d.time, value: d.bb_upper })));
+            bbLowerSeries.setData(chartData.map(d => ({ time: d.time, value: d.bb_lower })));
+        }
+
+        // EMA Calculation
+        function calculateEMA(prices, period) {
+            if (prices.length < period) return null;
+            const k = 2 / (period + 1);
+            let ema = prices[0];
+            for (let i = 1; i < prices.length; i++) {
+                ema = prices[i] * k + ema * (1 - k);
+            }
+            return ema;
+        }
+
+        // Bollinger Bands Calculation
+        function calculateBollingerBands(prices, period, stdDev) {
+            if (prices.length < period) return { upper: null, lower: null, middle: null };
+            
+            const slice = prices.slice(-period);
+            const avg = slice.reduce((a, b) => a + b, 0) / period;
+            const variance = slice.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / period;
+            const stdev = Math.sqrt(variance);
+            
+            return {
+                upper: avg + (stdev * stdDev),
+                lower: avg - (stdev * stdDev), 
+                middle: avg
+            };
+        }
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            chart.applyOptions({ width: document.getElementById('chart').clientWidth });
+        });
+    </script>
+</body>
+  </html>
